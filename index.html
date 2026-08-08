@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>灵魂捕手</title>
+<style>
+  /* ========== 基础重置 ========== */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1100px; height: 700px; overflow: hidden;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f5f4ef; color: #2a2a2a;
+    user-select: none;
+  }
+  body { position: relative; }
+
+  /* ========== 剪贴板监听状态条 ========== */
+  .clip-status {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 16px;
+    font-size: 12px;
+    background: #fbfaf5;
+    border-bottom: 1px solid #e4e2d8;
+    color: #7a776c;
+  }
+  .clip-status .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #c8c2a8; /* 待连接:灰 */
+    flex: 0 0 auto;
+    transition: background-color 0.2s;
+  }
+  .clip-status[data-state="connected"] .dot { background: #4caf50; }
+  .clip-status[data-state="connecting"] .dot { background: #e89a4a; }
+  .clip-status[data-state="disconnected"] .dot { background: #e84a4a; }
+  .clip-status .label { white-space: nowrap; }
+
+  /* ========== 顶部标题栏 ========== */
+  .topbar {
+    height: 56px; padding: 0 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #e4e2d8; background: #fbfaf5;
+  }
+  .topbar .title { font-size: 18px; font-weight: 600; letter-spacing: 1px; }
+  .topbar .date { font-size: 13px; color: #7a776c; }
+  .topbar .settings-btn {
+    width: 32px; height: 32px; border: none; background: transparent;
+    font-size: 18px; cursor: pointer; border-radius: 6px;
+  }
+  .topbar .settings-btn:hover { background: #ece9dd; }
+
+  /* ========== 主体双栏 ========== */
+  .main {
+    display: flex; height: calc(100% - 56px); width: 100%;
+  }
+  .left-pane { width: 680px; border-right: 1px solid #e4e2d8; display: flex; flex-direction: column; }
+  .right-pane { width: 420px; display: flex; flex-direction: column; background: #fdfcf6; }
+
+  /* 列表区 */
+  .left-list {
+    flex: 1; overflow-y: auto; padding: 12px 16px;
+  }
+  .item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; margin-bottom: 6px;
+    border: 1px solid #ebe7d8; border-radius: 6px; background: #fff;
+    font-size: 13px; line-height: 1.4;
+  }
+  .item input[type="checkbox"] { cursor: pointer; }
+  .item .item-content { flex: 1; min-width: 0; word-break: break-all; }
+  .item .item-content.text { color: #2a2a2a; }
+  .item .item-content.image img {
+    height: 80px; max-width: 220px; border-radius: 4px;
+    border: 1px solid #e4e2d8; object-fit: cover;
+  }
+  .item .item-meta { font-size: 11px; color: #999083; white-space: nowrap; }
+  /* 左栏拖拽手柄 + 拖放指示 */
+  .item .item-handle {
+    cursor: grab; color: #b4ad95; user-select: none; font-size: 14px;
+    padding: 0 2px; flex: 0 0 auto;
+  }
+  .item .item-handle:active { cursor: grabbing; }
+  .item.dragging { opacity: 0.4; }
+  .item.drag-over { border-top: 2px solid #e89a4a; }
+
+  /* 底部操作栏(原料操作) */
+  .left-actions {
+    padding: 10px 16px; border-top: 1px solid #e4e2d8; background: #fbfaf5;
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .left-actions button {
+    padding: 6px 12px; font-size: 12px; border: 1px solid #d4cfb8;
+    background: #fff; border-radius: 4px; cursor: pointer; color: #4a4636;
+  }
+  .left-actions button:hover { background: #f0ecdb; }
+
+  /* 右栏拼贴板 */
+  .right-board {
+    flex: 1; overflow-y: auto; padding: 12px 16px;
+    outline: none; font-size: 13px; line-height: 1.6;
+  }
+  .right-board:focus { background: #fffdf3; }
+  .board-item {
+    display: flex; align-items: flex-start; gap: 6px; margin-bottom: 8px;
+    padding: 4px 0;
+  }
+  .board-item .handle {
+    cursor: grab; color: #b4ad95; user-select: none; font-size: 14px;
+    padding: 2px 2px;
+  }
+  .board-item .handle:active { cursor: grabbing; }
+  .board-item .board-content { flex: 1; min-width: 0; outline: none; }
+  .board-item .board-content[contenteditable="true"]:empty:before {
+    content: attr(data-placeholder); color: #b4ad95;
+  }
+  .board-item .board-content.text { word-break: break-all; }
+  .board-item .board-content.image {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .board-item .board-content.image img {
+    height: 100px; max-width: 260px; border-radius: 4px;
+    border: 1px solid #e4e2d8; object-fit: cover;
+  }
+  .board-item .board-content.image .tag {
+    font-size: 11px; color: #998f6a;
+  }
+
+  /* 右栏底部(保存 + 日志) */
+  .right-actions {
+    padding: 10px 16px; border-top: 1px solid #e4e2d8; background: #fbfaf5;
+    display: flex; gap: 8px;
+  }
+  .right-actions .save-btn {
+    flex: 1; padding: 10px; font-size: 13px; font-weight: 600;
+    background: #e89a4a; color: #fff; border: none; border-radius: 6px;
+    cursor: pointer;
+  }
+  .right-actions .save-btn:hover { background: #d6883a; }
+  .right-actions .log-btn {
+    padding: 10px 14px; font-size: 13px;
+    background: #fff; border: 1px solid #d4cfb8; border-radius: 6px;
+    cursor: pointer; color: #4a4636;
+  }
+  .right-actions .log-btn:hover { background: #f0ecdb; }
+
+  /* ========== 浮动圆球 ========== */
+  .floater {
+    position: fixed; width: 56px; height: 56px; border-radius: 50%;
+    background: #2a2a2a; color: #fff; border: none;
+    display: none; cursor: pointer; z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    font-size: 22px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .floater.show { display: flex; }
+  .floater .badge {
+    position: absolute; top: -4px; right: -4px;
+    min-width: 20px; height: 20px; border-radius: 10px;
+    background: #e84a4a; color: #fff; font-size: 11px;
+    display: none; align-items: center; justify-content: center;
+    padding: 0 5px; font-weight: 600;
+  }
+  .floater .badge.show { display: flex; }
+
+  /* ========== 设置面板 ========== */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    display: none; align-items: center; justify-content: center; z-index: 2000;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    width: 440px; background: #fff; border-radius: 8px;
+    padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  }
+  .modal h3 { font-size: 15px; margin-bottom: 12px; }
+  .modal .path-box {
+    padding: 8px 10px; background: #f5f4ef; border: 1px solid #e4e2d8;
+    border-radius: 4px; font-size: 12px; color: #4a4636;
+    margin-bottom: 12px; word-break: break-all; min-height: 32px;
+  }
+  .modal .path-box.empty { color: #999083; font-style: italic; }
+  .modal .modal-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+  .modal .modal-actions button {
+    padding: 6px 14px; font-size: 12px; border-radius: 4px;
+    border: 1px solid #d4cfb8; background: #fff; cursor: pointer;
+  }
+  .modal .modal-actions .primary {
+    background: #e89a4a; color: #fff; border-color: #e89a4a;
+  }
+  .modal .modal-actions .primary:hover { background: #d6883a; }
+
+  /* ========== Toast ========== */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 8px 16px; background: #2a2a2a; color: #fff;
+    border-radius: 4px; font-size: 12px; z-index: 3000;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ========== 日志面板 ========== */
+  .log-panel {
+    position: fixed; top: 56px; right: 0; width: 360px; height: calc(100% - 56px);
+    background: #fff; border-left: 1px solid #e4e2d8;
+    display: none; flex-direction: column; z-index: 1500;
+  }
+  .log-panel.show { display: flex; }
+  .log-panel .log-header {
+    padding: 12px 16px; border-bottom: 1px solid #e4e2d8;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; font-weight: 600;
+  }
+  .log-panel .log-header button {
+    padding: 4px 10px; font-size: 11px; border: 1px solid #d4cfb8;
+    background: #fff; border-radius: 4px; cursor: pointer;
+  }
+  .log-panel .log-list { flex: 1; overflow-y: auto; padding: 8px 16px; }
+  .log-panel .log-entry {
+    padding: 6px 0; border-bottom: 1px dashed #ece9dd;
+    font-size: 11px; color: #4a4636;
+  }
+  .log-panel .log-entry .log-time { color: #999083; margin-right: 6px; }
+  .log-panel .log-entry.ok { color: #2a7a2a; }
+  .log-panel .log-entry.fail { color: #b13838; }
+  .log-panel .log-empty { color: #999083; font-size: 12px; padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- 顶部标题栏 -->
+<div class="topbar">
+  <div class="title">灵魂捕手</div>
+  <div class="date" id="headerDate"></div>
+  <button class="settings-btn" id="settingsBtn" title="设置">⚙️</button>
+</div>
+
+<!-- 主体双栏 -->
+<div class="main" id="mainView">
+  <!-- 左栏:原料 -->
+  <div class="left-pane">
+    <div class="clip-status" id="clipStatus" data-state="connecting">
+      <span class="dot"></span>
+      <span class="label" id="clipStatusLabel">剪贴板:连接中…</span>
+    </div>
+    <div class="left-list" id="leftList"></div>
+    <div class="left-actions">
+      <button id="importClipboardBtn">导入剪贴板</button>
+      <button id="selectAllBtn">全选</button>
+      <button id="deletePickedBtn">删除已选</button>
+      <button id="deleteUnpickedBtn">删除未选</button>
+    </div>
+  </div>
+
+  <!-- 右栏:拼贴板 -->
+  <div class="right-pane">
+    <div class="right-board" id="rightBoard" contenteditable="true"></div>
+    <div class="right-actions">
+      <button class="save-btn" id="saveBtn">保存片段</button>
+      <button class="log-btn" id="logBtn">日志</button>
+    </div>
+  </div>
+</div>
+
+<!-- 浮动圆球(最小化态) -->
+<button class="floater" id="floater">
+  💡
+  <span class="badge" id="floaterBadge">0</span>
+</button>
+
+<!-- 设置面板 -->
+<div class="modal-mask" id="settingsModal">
+  <div class="modal">
+    <h3>设置工作区</h3>
+    <div style="font-size:12px;color:#7a776c;margin-bottom:8px;">
+      选择一个本地文件夹,用于保存图片和导出的 Markdown 文件。
+    </div>
+    <div class="path-box empty" id="currentPath">尚未设置工作区</div>
+    <div class="modal-actions">
+      <button id="closeSettingsBtn">关闭</button>
+      <button class="primary" id="pickDirBtn">选择文件夹</button>
+    </div>
+  </div>
+</div>
+
+<!-- 日志面板 -->
+<div class="log-panel" id="logPanel">
+  <div class="log-header">
+    <span>操作日志</span>
+    <div>
+      <button id="clearLogBtn">清空</button>
+      <button id="closeLogBtn">关闭</button>
+    </div>
+  </div>
+  <div class="log-list" id="logList"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+/* ============================================================
+ * 灵魂捕手 — 全部逻辑
+ * 章节: 1.常量与状态  2.工具函数  3.LocalStorage 持久化
+ *       4.文件夹句柄持久化(IndexedDB)  5.文件读写
+ *       6.粘贴捕获  7.渲染  8.右栏编辑
+ *       8.5左栏拖拽排序  9.保存片段  10.日志  11.浮动圆球  12.设置
+ *       12.5剪贴板监听状态  13.初始化  14.事件绑定
+ * ============================================================ */
+
+/* ===== 1.常量与状态 ===== */
+const STORAGE_KEY = 'inspiration_catcher';   // LocalStorage 主键
+const IDB_NAME = 'inspiration_catcher_db';   // IndexedDB 名称(用于存文件夹句柄)
+const IDB_STORE = 'handles';                 // IndexedDB 对象仓库名
+const APP_WIDTH = 1100;                       // 窗口固定宽
+const APP_HEIGHT = 700;                       // 窗口固定高
+
+let items = [];        // 全部碎片(仅今日)
+let logs = [];         // 日志列表
+let folderHandle = null; // 当前工作区文件夹句柄
+let isMinimized = false; // 主界面是否最小化
+let pendingCount = 0;  // 最小化期间新增的碎片数
+const imageBlobCache = new Map(); // imagePath -> blob URL,缓存避免重复创建
+
+/* ===== 2.工具函数 ===== */
+
+/** 生成短 ID */
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+/** 格式化当前日期 YYYY-MM-DD */
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+/** 格式化当前时间 HH:MM:SS */
+function nowTimeStr() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' +
+    String(d.getMinutes()).padStart(2, '0') + ':' +
+    String(d.getSeconds()).padStart(2, '0');
+}
+
+/** 格式化显示日期(顶部用) */
+function formatHeaderDate() {
+  const d = new Date();
+  return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 · ' +
+    ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
+}
+
+/** Toast 提示 */
+let toastTimer;
+
+function toast(msg, duration = 1800) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), duration);
+}
+
+/** 判断焦点是否在可编辑元素 */
+function isEditingText() {
+  const a = document.activeElement;
+  if (!a) return false;
+  const tag = a.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
+  if (a instanceof HTMLElement && a.isContentEditable) return true;
+  return false;
+}
+
+/** 二次确认弹窗 */
+function confirmDialog(msg) {
+  return window.confirm(msg);
+}
+
+/* ===== 3.LocalStorage 持久化 ===== */
+
+/** 将全部 items 写入 LocalStorage */
+function saveItems() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  } catch (e) {
+    console.error('[saveItems]', e);
+    addLog('保存到 LocalStorage 失败: ' + e.message, false);
+  }
+}
+
+/** 从 LocalStorage 加载 items,过滤掉非今日的 */
+function loadItems() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    const today = todayStr();
+    return arr.filter(x => x && x.date === today);
+  } catch (e) {
+    console.error('[loadItems]', e);
+    return [];
+  }
+}
+
+/* ===== 4.文件夹句柄持久化(IndexedDB) ===== */
+
+/** 把文件夹句柄存入 IndexedDB */
+async function saveHandleToIdb(handle) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(handle, 'folder');
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** 从 IndexedDB 读出文件夹句柄,启动时尝试拿权限 */
+async function loadHandleFromIdb() {
+  try {
+    const handle = await new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const g = tx.objectStore(IDB_STORE).get('folder');
+        g.onsuccess = () => { db.close(); resolve(g.result || null); };
+        g.onerror = () => { db.close(); reject(g.error); };
+      };
+      req.onerror = () => reject(req.error);
+    });
+    if (!handle) return null;
+    // 重新申请读写权限
+    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm === 'granted') return handle;
+    const perm2 = await handle.requestPermission({ mode: 'readwrite' });
+    if (perm2 === 'granted') return handle;
+    return null;
+  } catch (e) {
+    console.error('[loadHandleFromIdb]', e);
+    return null;
+  }
+}
+
+/** 清除 IndexedDB 中的句柄 */
+async function clearHandleFromIdb() {
+  try {
+    const db = await new Promise((resolve, reject) => {
+      const r = indexedDB.open(IDB_NAME, 1);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete('folder');
+    await new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+    db.close();
+  } catch (e) { console.error('[clearHandleFromIdb]', e); }
+}
+
+/* ===== 5.文件读写(图片保存 + Markdown 写入) ===== */
+
+/** 写入图片到工作区 images/ 子目录,返回相对路径 */
+async function saveImageBlob(blob) {
+  if (!folderHandle) throw new Error('未设置工作区');
+  // 获取或创建 images 子目录
+  let imagesDir;
+  try {
+    imagesDir = await folderHandle.getDirectoryHandle('images', { create: true });
+  } catch (e) {
+    throw new Error('创建 images 目录失败: ' + e.message);
+  }
+  const filename = Date.now() + '.png';
+  const fileHandle = await imagesDir.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+  return 'images/' + filename;
+}
+
+/** 把图片路径转成 blob URL(用于显示) */
+async function getImageBlobUrl(relativePath) {
+  if (imageBlobCache.has(relativePath)) return imageBlobCache.get(relativePath);
+  if (!folderHandle) return null;
+  try {
+    // 拆分路径
+    const parts = relativePath.split('/');
+    const filename = parts.pop();
+    const subdirName = parts.pop(); // 'images'
+    let dir = folderHandle;
+    if (subdirName) dir = await dir.getDirectoryHandle(subdirName);
+    const fileHandle = await dir.getFileHandle(filename);
+    const file = await fileHandle.getFile();
+    const url = URL.createObjectURL(file);
+    imageBlobCache.set(relativePath, url);
+    return url;
+  } catch (e) {
+    console.error('[getImageBlobUrl]', relativePath, e);
+    return null;
+  }
+}
+
+/** 写入 Markdown 文件(冲突自动加序号) */
+async function writeMarkdownFile(content) {
+  // 基础文件名 YYYY-MM-DD.md
+  const baseName = todayStr();
+  let filename = baseName + '.md';
+  let counter = 1;
+  // 检查重名,自动加 (1) (2)
+  while (true) {
+    try {
+      await folderHandle.getFileHandle(filename);
+      // 存在,加序号
+      filename = baseName + '(' + counter + ').md';
+      counter++;
+    } catch (e) {
+      // 不存在,跳出
+      break;
+    }
+  }
+  const fileHandle = await folderHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+  return filename;
+}
+
+/** 浏览器下载兜底 */
+function downloadFallback(content, filename) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ===== 6.粘贴捕获 ===== */
+
+/** 把剪贴板条目(文本或图片)转成 item 并入库 */
+async function captureClipboardItem(clipItem) {
+  // 文本
+  if (clipItem.type === 'text/plain') {
+    const blob = await clipItem.getType('text/plain');
+    const text = await blob.text();
+    if (!text.trim()) return;
+    addItem({ type: 'text', content: text });
+    return;
+  }
+  // 图片
+  if (clipItem.type.startsWith('image/')) {
+    if (!folderHandle) {
+      toast('请先在设置中选择工作区文件夹', 2400);
+      openSettings();
+      return;
+    }
+    const blob = await clipItem.getType(clipItem.type);
+    try {
+      const relativePath = await saveImageBlob(blob);
+      addItem({ type: 'image', relativePath: relativePath });
+    } catch (e) {
+      console.error('[capture image]', e);
+      toast('图片保存失败: ' + e.message, 2400);
+      addLog('图片保存失败: ' + e.message, false);
+    }
+  }
+}
+
+/** 处理 paste 事件 */
+async function handlePaste(e) {
+  if (isEditingText()) return; // 焦点在输入框不抢
+  if (!e.clipboardData) return;
+  const types = Array.from(e.clipboardData.types || []);
+  // 文本
+  if (types.includes('text/plain')) {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain');
+    if (text.trim()) {
+      addItem({ type: 'text', content: text });
+    }
+    return;
+  }
+  // 图片(从 e.clipboardData.items)
+  for (const item of e.clipboardData.items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      if (!folderHandle) {
+        toast('请先在设置中选择工作区文件夹', 2400);
+        openSettings();
+        return;
+      }
+      const blob = item.getAsFile();
+      if (!blob) continue;
+      try {
+        const relativePath = await saveImageBlob(blob);
+        addItem({ type: 'image', relativePath: relativePath });
+      } catch (err) {
+        console.error('[paste image]', err);
+        toast('图片保存失败: ' + err.message, 2400);
+        addLog('图片保存失败: ' + err.message, false);
+      }
+      return;
+    }
+  }
+}
+
+/** 主动读取剪贴板(导入按钮) */
+// 不走 navigator.clipboard.read()(窗口失焦会抛 Document is not focused),
+// 而是通过 preload 桥到主进程,主进程用 Electron clipboard API 读取,不依赖渲染窗口焦点。
+async function importFromClipboard() {
+  const bridge = window.clipboardBridge;
+  if (!bridge || !bridge.readClipboard) {
+    toast('剪贴板桥不可用', 2400);
+    return;
+  }
+  let payload;
+  try {
+    payload = await bridge.readClipboard();
+  } catch (e) {
+    console.error('[importFromClipboard] readClipboard', e);
+    toast('读取剪贴板失败: ' + (e && e.message ? e.message : String(e)), 2400);
+    return;
+  }
+  let count = 0;
+  if (payload && payload.text && payload.text.trim()) {
+    addItem({ type: 'text', content: payload.text });
+    count++;
+  }
+  if (payload && payload.imageDataUrl) {
+    if (!folderHandle) {
+      toast('请先在设置中选择工作区文件夹', 2400);
+      openSettings();
+      return;
+    }
+    try {
+      const blob = dataUrlToBlob(payload.imageDataUrl);
+      const relativePath = await saveImageBlob(blob);
+      addItem({ type: 'image', relativePath });
+      count++;
+    } catch (e) {
+      console.error('[importFromClipboard] saveImage', e);
+      toast('保存图片失败: ' + (e && e.message ? e.message : String(e)), 2400);
+      return;
+    }
+  }
+  if (count > 0) toast(`已导入 ${count} 条`);
+  else toast('剪贴板为空');
+}
+
+/** dataURL → Blob,用于主进程返回的图片落盘 */
+function dataUrlToBlob(dataUrl) {
+  const m = /^data:([^;,]+)(;base64)?,(.*)$/.exec(dataUrl || '');
+  if (!m) throw new Error('非法的 dataURL');
+  const mime = m[1] || 'image/png';
+  const isBase64 = !!m[2];
+  const body = m[3] || '';
+  if (isBase64) {
+    const binary = atob(body);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+  return new Blob([decodeURIComponent(body)], { type: mime });
+}
+
+/** 新增一条碎片 */
+function addItem(partial) {
+  const item = Object.assign({
+    id: genId(),
+    isPicked: false,
+    date: todayStr(),
+    time: nowTimeStr(),
+  }, partial);
+  items.push(item);
+  saveItems();
+  // 最小化时累加角标
+  if (isMinimized) {
+    pendingCount++;
+    updateBadge();
+  }
+  renderLeftList();
+  renderRightBoard();
+  addLog('捕获' + (item.type === 'text' ? '文本' : '图片') + '成功', true);
+  toast('已捕获');
+}
+
+/* ===== 7.渲染 ===== */
+
+/** 渲染左栏原料列表 */
+async function renderLeftList() {
+  const container = document.getElementById('leftList');
+  container.innerHTML = '';
+  if (items.length === 0) {
+    container.innerHTML = '<div style="color:#999083;font-size:12px;padding:20px;text-align:center;">今日暂无碎片,试试粘贴 ⌘V / Ctrl+V</div>';
+    return;
+  }
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const row = document.createElement('div');
+    row.className = 'item';
+    row.dataset.id = it.id;
+
+    // 拖拽手柄(整行可拖,手柄只作视觉锚点)
+    const handle = document.createElement('span');
+    handle.className = 'item-handle';
+    handle.textContent = '⠿';
+    handle.draggable = true;
+    handle.addEventListener('dragstart', onItemDragStart);
+    handle.addEventListener('dragend', onItemDragEnd);
+    row.appendChild(handle);
+    // 让整行 row 也作为 drop 目标(否则手柄太小不好定位)
+    row.addEventListener('dragover', onItemDragOver);
+    row.addEventListener('dragleave', onItemDragLeave);
+    row.addEventListener('drop', onItemDrop);
+
+    // 复选框
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!it.isPicked;
+    cb.addEventListener('change', () => {
+      it.isPicked = cb.checked;
+      saveItems();
+      renderRightBoard();
+    });
+    row.appendChild(cb);
+
+    // 内容
+    const content = document.createElement('div');
+    content.className = 'item-content ' + it.type;
+    if (it.type === 'text') {
+      content.textContent = it.content;
+    } else {
+      const url = await getImageBlobUrl(it.relativePath);
+      if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = it.relativePath;
+        content.appendChild(img);
+      } else {
+        content.textContent = '[图片加载失败] ' + it.relativePath;
+      }
+    }
+    row.appendChild(content);
+
+    // 时间
+    const meta = document.createElement('div');
+    meta.className = 'item-meta';
+    meta.textContent = it.time;
+    row.appendChild(meta);
+
+    container.appendChild(row);
+  }
+}
+
+/** 渲染右栏拼贴板 */
+async function renderRightBoard() {
+  const board = document.getElementById('rightBoard');
+  // 保留光标:取当前焦点元素及其 selectionStart 等价位置
+  const active = document.activeElement;
+  const activeId = active instanceof HTMLElement ? active.dataset.id : null;
+  const selOffset = active ? getCaretOffset(active) : 0;
+
+  board.innerHTML = '';
+  const picked = items.filter(x => x.isPicked);
+  if (picked.length === 0) {
+    board.innerHTML = '<div style="color:#999083;font-size:12px;padding:20px;text-align:center;">勾选左侧原料后,会在此拼贴</div>';
+    return;
+  }
+  for (const it of picked) {
+    const wrap = document.createElement('div');
+    wrap.className = 'board-item';
+    wrap.dataset.id = it.id;
+
+    // 内容
+    const content = document.createElement('div');
+    content.className = 'board-content ' + it.type;
+    content.contentEditable = 'true';
+    content.dataset.id = it.id;
+    content.dataset.type = it.type;
+    content.addEventListener('input', onBoardInput);
+
+    if (it.type === 'text') {
+      // 文字:展示 editedText(若有)否则 content
+      content.textContent = it.editedText !== undefined ? it.editedText : it.content;
+    } else {
+      content.classList.add('image');
+      const tag = document.createElement('div');
+      tag.className = 'tag';
+      tag.textContent = '[图片]';
+      content.appendChild(tag);
+      const url = await getImageBlobUrl(it.relativePath);
+      if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = it.relativePath;
+        content.appendChild(img);
+      } else {
+        const err = document.createElement('div');
+        err.style.color = '#b13838';
+        err.textContent = '[图片加载失败]';
+        content.appendChild(err);
+      }
+      // 图片整体不让编辑
+      content.contentEditable = 'false';
+    }
+    wrap.appendChild(content);
+    board.appendChild(wrap);
+  }
+
+  // 恢复焦点
+  if (activeId) {
+    const el = board.querySelector('[data-id="' + activeId + '"]');
+    if (el instanceof HTMLElement) {
+      el.focus();
+      try {
+        setCaretOffset(el, selOffset);
+      } catch {
+        // 焦点恢复失败不影响拼贴板内容,保留浏览器的默认光标位置。
+      }
+    }
+  }
+}
+
+/** 获取 contentEditable 元素的 caret 偏移(文本节点) */
+function getCaretOffset(el) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.startContainer)) return 0;
+  // 计算从 el 起始到 startContainer+startOffset 的字符数
+  const pre = range.cloneRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.startContainer, range.startOffset);
+  return pre.toString().length;
+}
+
+/** 设置 caret 偏移 */
+function setCaretOffset(el, offset) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+  let remaining = offset;
+  let placed = false;
+  function walk(node) {
+    if (placed) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = node.textContent.length;
+      if (remaining <= len) {
+        range.setStart(node, remaining);
+        range.collapse(true);
+        placed = true;
+      } else {
+        remaining -= len;
+      }
+    } else {
+      for (const child of node.childNodes) {
+        walk(child);
+        if (placed) return;
+      }
+    }
+  }
+  walk(el);
+  if (!placed) {
+    range.selectNodeContents(el);
+    range.collapse(false);
+  }
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+/* ===== 8.右栏拖拽与编辑 ===== */
+
+let itemDragSrcId = null;
+
+function onItemDragStart(e) {
+  const wrap = e.target.closest('.item');
+  if (!wrap) return;
+  itemDragSrcId = wrap.dataset.id;
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', itemDragSrcId); } catch { /* noop */ }
+  wrap.classList.add('dragging');
+}
+
+function onItemDragEnd(e) {
+  const wrap = e.target.closest('.item');
+  if (wrap) wrap.classList.remove('dragging');
+  document.querySelectorAll('.item.drag-over').forEach(el => el.classList.remove('drag-over'));
+  itemDragSrcId = null;
+}
+
+function onItemDragOver(e) {
+  if (!itemDragSrcId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const wrap = e.currentTarget.closest('.item');
+  if (wrap) wrap.classList.add('drag-over');
+}
+
+function onItemDragLeave(e) {
+  const wrap = e.currentTarget.closest('.item');
+  if (wrap) wrap.classList.remove('drag-over');
+}
+
+function onItemDrop(e) {
+  e.preventDefault();
+  const wrap = e.currentTarget.closest('.item');
+  if (wrap) wrap.classList.remove('drag-over');
+  const targetId = wrap && wrap.dataset.id;
+  if (!itemDragSrcId || !targetId || itemDragSrcId === targetId) return;
+  // 重新排序 items:把 src 元素移动到 target 的位置
+  const srcIdx = items.findIndex(x => x.id === itemDragSrcId);
+  const dstIdx = items.findIndex(x => x.id === targetId);
+  if (srcIdx < 0 || dstIdx < 0) return;
+  const [moved] = items.splice(srcIdx, 1);
+  items.splice(dstIdx, 0, moved);
+  saveItems();
+  renderLeftList();
+  renderRightBoard();
+}
+
+/** 右栏文字编辑:把用户改过的文本存到 editedText */
+function onBoardInput(e) {
+  const el = e.currentTarget;
+  const id = el.dataset.id;
+  const it = items.find(x => x.id === id);
+  if (!it || it.type !== 'text') return;
+  it.editedText = el.textContent;
+  saveItems();
+}
+
+/* ===== 9.保存片段 ===== */
+
+/** 把右栏拼贴板内容组装成 Markdown */
+function buildMarkdown() {
+  const lines = [];
+  lines.push('# ' + todayStr() + ' 的灵感');
+  lines.push('');
+  // 按右栏当前的 DOM 顺序读取
+  const board = document.getElementById('rightBoard');
+  const wraps = board.querySelectorAll('.board-item');
+  for (const w of wraps) {
+    if (!(w instanceof HTMLElement)) continue;
+    const id = w.dataset.id;
+    const it = items.find(x => x.id === id);
+    if (!it) continue;
+    if (it.type === 'text') {
+      const text = (it.editedText !== undefined ? it.editedText : it.content).trim();
+      if (text) lines.push('- ' + text);
+    } else {
+      lines.push('- ![image](' + it.relativePath + ')');
+    }
+  }
+  return lines.join('\n');
+}
+
+/** 点击保存按钮 */
+async function handleSave() {
+  const picked = items.filter(x => x.isPicked);
+  if (picked.length === 0) {
+    toast('右栏为空,先勾选原料');
+    return;
+  }
+  const md = buildMarkdown();
+  if (folderHandle) {
+    try {
+      const filename = await writeMarkdownFile(md);
+      addLog('保存片段成功: ' + filename, true);
+      toast('保存成功: ' + filename);
+    } catch (e) {
+      console.error('[writeMarkdown]', e);
+      addLog('保存片段失败: ' + e.message, false);
+      toast('保存失败: ' + e.message, 2400);
+    }
+  } else {
+    // 兜底:浏览器下载
+    try {
+      const filename = todayStr() + '.md';
+      downloadFallback(md, filename);
+      addLog('已下载(未设置工作区): ' + filename, true);
+      toast('已下载: ' + filename);
+    } catch (e) {
+      console.error('[download fallback]', e);
+      addLog('下载失败: ' + e.message, false);
+      toast('下载失败: ' + e.message, 2400);
+    }
+  }
+}
+
+/* ===== 10.日志 ===== */
+
+function addLog(msg, ok) {
+  logs.unshift({
+    time: nowTimeStr(),
+    date: todayStr(),
+    text: msg,
+    ok: ok !== false,
+  });
+  // 上限 200 条
+  if (logs.length > 200) logs = logs.slice(0, 200);
+  renderLogs();
+}
+
+function renderLogs() {
+  const list = document.getElementById('logList');
+  list.innerHTML = '';
+  if (logs.length === 0) {
+    list.innerHTML = '<div class="log-empty">暂无日志</div>';
+    return;
+  }
+  for (const l of logs) {
+    const div = document.createElement('div');
+    div.className = 'log-entry ' + (l.ok ? 'ok' : 'fail');
+    div.innerHTML = '<span class="log-time">' + l.time + '</span>' + escapeHtml(l.text);
+    list.appendChild(div);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+}
+
+/* ===== 11.浮动圆球 ===== */
+
+function showFloater() {
+  isMinimized = true;
+  document.getElementById('mainView').style.display = 'none';
+  const f = document.getElementById('floater');
+  f.classList.add('show');
+  // 位置:右下角
+  f.style.right = '24px';
+  f.style.bottom = '24px';
+  f.style.left = 'auto';
+  f.style.top = 'auto';
+  updateBadge();
+}
+
+function hideFloater() {
+  isMinimized = false;
+  pendingCount = 0;
+  document.getElementById('mainView').style.display = 'flex';
+  document.getElementById('floater').classList.remove('show');
+  updateBadge();
+}
+
+function updateBadge() {
+  const badge = document.getElementById('floaterBadge');
+  if (pendingCount > 0) {
+    badge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
+    badge.classList.add('show');
+  } else {
+    badge.classList.remove('show');
+  }
+}
+
+/** 浮动球拖拽 */
+(function bindFloaterDrag() {
+  const f = document.getElementById('floater');
+  let dragging = false, moved = false, ox = 0, oy = 0;
+  f.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    dragging = true; moved = false;
+    const rect = f.getBoundingClientRect();
+    ox = e.clientX - rect.left;
+    oy = e.clientY - rect.top;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    moved = true;
+    const x = Math.max(0, Math.min(window.innerWidth - f.offsetWidth, e.clientX - ox));
+    const y = Math.max(0, Math.min(window.innerHeight - f.offsetHeight, e.clientY - oy));
+    f.style.left = x + 'px';
+    f.style.top = y + 'px';
+    f.style.right = 'auto';
+    f.style.bottom = 'auto';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    const wasMoved = moved;
+    dragging = false;
+    if (!wasMoved) {
+      // 当作点击
+      hideFloater();
+    }
+  });
+})();
+
+/* ===== 12.设置 ===== */
+
+function openSettings() {
+  const m = document.getElementById('settingsModal');
+  m.classList.add('show');
+  const pathEl = document.getElementById('currentPath');
+  if (folderHandle) {
+    pathEl.classList.remove('empty');
+    pathEl.textContent = folderHandle.name + ' (已授权)';
+  } else {
+    pathEl.classList.add('empty');
+    pathEl.textContent = '尚未设置工作区';
+  }
+}
+
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('show');
+}
+
+/** 选择文件夹 */
+async function pickDirectory() {
+  if (!window.showDirectoryPicker) {
+    toast('当前浏览器不支持选择文件夹(需要 Chrome/Edge)', 2800);
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    folderHandle = handle;
+    await saveHandleToIdb(handle);
+    addLog('设置工作区: ' + handle.name, true);
+    toast('已设置工作区: ' + handle.name);
+    openSettings(); // 刷新显示
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // 用户取消
+    console.error('[pickDirectory]', e);
+    toast('选择文件夹失败: ' + e.message, 2400);
+    addLog('设置工作区失败: ' + e.message, false);
+  }
+}
+
+/* ===== 12.5 主进程剪贴板桥接(IPC) ===== */
+
+/**
+ * 由 preload 暴露的 window.clipboardBridge 监听来自主进程的剪贴板推送。
+ * 与 document 'paste' 不同,这条路径不要求窗口在前台焦点,
+ * 也不要求用户按 Ctrl+V,只要系统剪贴板有变化即触发。
+ *
+ * 去重:1 分钟内相同文本/图片签名只入库一次(由主进程保证)。
+ */
+function bindClipboardBridge() {
+  const bridge = window.clipboardBridge;
+  if (!bridge) return; // 浏览器预览环境或 preload 未加载,静默跳过
+
+  bridge.onText(async (text) => {
+    if (!text || !text.trim()) return;
+    // 焦点在输入框时仍正常入库,但避免用户在拼贴板里编辑时被覆盖
+    // 实际上 clipboard 事件不抢光标,这里不阻断
+    addItem({ type: 'text', content: text });
+    addLog('主进程捕获文本', true);
+  });
+
+  bridge.onImage(async (blob) => {
+    if (!blob) return;
+    if (!folderHandle) {
+      toast('请先在设置中选择工作区文件夹', 2400);
+      openSettings();
+      return;
+    }
+    try {
+      const relativePath = await saveImageBlob(blob);
+      addItem({ type: 'image', relativePath: relativePath });
+      addLog('主进程捕获图片', true);
+    } catch (err) {
+      console.error('[ipc image]', err);
+      toast('图片保存失败: ' + err.message, 2400);
+      addLog('图片保存失败: ' + err.message, false);
+    }
+  });
+}
+
+/* ===== 13.初始化 ===== */
+
+/* ===== 12.6 剪贴板监听心跳与状态机 ===== */
+
+/**
+ * 状态机:
+ *   connecting  -> 灰色(initial)/橙色(重连中)
+ *   connected   -> 绿色(主进程正常 ACK)
+ *   disconnected -> 红色(连续心跳失败)
+ * 失败后 1s 自动重连,即重新进入 connecting,持续 ping。
+ */
+const HEARTBEAT_INTERVAL_MS = 1500;
+const HEARTBEAT_TIMEOUT_MS = 1500;
+const HEARTBEAT_RECONNECT_MS = 1000;
+const HEARTBEAT_MAX_FAILS = 2; // 连续失败次数阈值
+
+let heartbeatTimer = null;
+let reconnectTimer = null;
+let heartbeatFails = 0;
+let heartbeatStopped = false;
+
+function setClipStatus(state, text) {
+  const el = document.getElementById('clipStatus');
+  const label = document.getElementById('clipStatusLabel');
+  if (!el || !label) return;
+  el.setAttribute('data-state', state);
+  label.textContent = text;
+}
+
+/** 跑一轮 ping,根据结果推进状态机 */
+async function runHeartbeatOnce() {
+  const bridge = window.clipboardBridge;
+  if (!bridge || !bridge.pingStatus) {
+    setClipStatus('disconnected', '剪贴板:连接失败');
+    scheduleReconnect();
+    return;
+  }
+  const ok = await bridge.pingStatus(HEARTBEAT_TIMEOUT_MS);
+  if (heartbeatStopped) return;
+  if (ok) {
+    heartbeatFails = 0;
+    setClipStatus('connected', '剪贴板:已连接');
+  } else {
+    heartbeatFails++;
+    if (heartbeatFails >= HEARTBEAT_MAX_FAILS) {
+      setClipStatus('disconnected', '剪贴板:连接失败,1s 后重连');
+      scheduleReconnect();
+      return;
+    } else {
+      setClipStatus('connecting', '剪贴板:连接中…');
+    }
+  }
+  heartbeatTimer = setTimeout(runHeartbeatOnce, HEARTBEAT_INTERVAL_MS);
+}
+
+function scheduleReconnect() {
+  if (heartbeatStopped) return;
+  if (heartbeatTimer) { clearTimeout(heartbeatTimer); heartbeatTimer = null; }
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    setClipStatus('connecting', '剪贴板:连接中…');
+    runHeartbeatOnce();
+  }, HEARTBEAT_RECONNECT_MS);
+}
+
+function bindClipboardHeartbeat() {
+  if (heartbeatStopped) return;
+  setClipStatus('connecting', '剪贴板:连接中…');
+  runHeartbeatOnce();
+}
+
+async function init() {
+  // 顶部日期
+  document.getElementById('headerDate').textContent = formatHeaderDate();
+
+  // 恢复文件夹句柄
+  folderHandle = await loadHandleFromIdb();
+
+  // 加载今日 items
+  items = loadItems();
+  await renderLeftList();
+  await renderRightBoard();
+
+  // 首次启动:导入剪贴板最近 10 条
+  if (items.length === 0 && navigator.clipboard && navigator.clipboard.read) {
+    try {
+      const clips = await navigator.clipboard.read();
+      let count = 0;
+      for (const c of clips) {
+        if (count >= 10) break;
+        if (c.types.includes('text/plain')) {
+          const blob = await c.getType('text/plain');
+          const text = (await blob.text()).trim();
+          if (text) {
+            items.push({
+              id: genId(),
+              type: 'text',
+              content: text,
+              date: todayStr(),
+              time: nowTimeStr(),
+              isPicked: false,
+            });
+            count++;
+          }
+        } else if (c.types.some(t => t.startsWith('image/'))) {
+          if (!folderHandle) break;
+          const imgType = c.types.find(t => t.startsWith('image/'));
+          const blob = await c.getType(imgType);
+          try {
+            const relativePath = await saveImageBlob(blob);
+            items.push({
+              id: genId(),
+              type: 'image',
+              relativePath: relativePath,
+              date: todayStr(),
+              time: nowTimeStr(),
+              isPicked: false,
+            });
+            count++;
+          } catch (e) { console.error(e); }
+        }
+      }
+      if (count > 0) {
+        saveItems();
+        await renderLeftList();
+        addLog('首次启动导入剪贴板 ' + count + ' 条', true);
+      }
+    } catch (e) {
+      // 权限被拒绝或不支持,静默
+      console.warn('[init clipboard]', e);
+    }
+  }
+
+  // 设置初始尺寸
+  window.resizeTo(APP_WIDTH, APP_HEIGHT);
+  window.moveTo(80, 60);
+
+  // 启动日志
+  addLog('灵魂捕手已启动', true);
+}
+
+/* ===== 14.事件绑定 ===== */
+
+document.addEventListener('DOMContentLoaded', () => {
+  // 设置按钮
+  document.getElementById('settingsBtn').addEventListener('click', openSettings);
+  document.getElementById('closeSettingsBtn').addEventListener('click', closeSettings);
+  document.getElementById('pickDirBtn').addEventListener('click', pickDirectory);
+  document.getElementById('settingsModal').addEventListener('click', (e) => {
+    if (e.target instanceof HTMLElement && e.target.id === 'settingsModal') closeSettings();
+  });
+
+  // 导入剪贴板
+  document.getElementById('importClipboardBtn').addEventListener('click', importFromClipboard);
+
+  // 全选
+  document.getElementById('selectAllBtn').addEventListener('click', () => {
+    items.forEach(x => x.isPicked = true);
+    saveItems();
+    renderLeftList();
+    renderRightBoard();
+  });
+
+  // 删除已选
+  document.getElementById('deletePickedBtn').addEventListener('click', () => {
+    const cnt = items.filter(x => x.isPicked).length;
+    if (cnt === 0) { toast('没有已选项'); return; }
+    if (!confirmDialog('确认删除已选的 ' + cnt + ' 条?')) return;
+    items = items.filter(x => !x.isPicked);
+    saveItems();
+    renderLeftList();
+    renderRightBoard();
+    addLog('删除已选 ' + cnt + ' 条', true);
+  });
+
+  // 删除未选
+  document.getElementById('deleteUnpickedBtn').addEventListener('click', () => {
+    const cnt = items.filter(x => !x.isPicked).length;
+    if (cnt === 0) { toast('没有未选项'); return; }
+    if (!confirmDialog('确认删除未选的 ' + cnt + ' 条?')) return;
+    items = items.filter(x => x.isPicked);
+    saveItems();
+    renderLeftList();
+    renderRightBoard();
+    addLog('删除未选 ' + cnt + ' 条', true);
+  });
+
+  // 保存
+  document.getElementById('saveBtn').addEventListener('click', handleSave);
+
+  // 日志抽屉
+  const logPanel = document.getElementById('logPanel');
+  document.getElementById('logBtn').addEventListener('click', () => {
+    logPanel.classList.toggle('show');
+  });
+  document.getElementById('closeLogBtn').addEventListener('click', () => {
+    logPanel.classList.remove('show');
+  });
+  document.getElementById('clearLogBtn').addEventListener('click', () => {
+    logs = [];
+    renderLogs();
+  });
+
+  // 全局粘贴捕获
+  document.addEventListener('paste', handlePaste);
+
+  // 主进程剪贴板监听 IPC(preload 暴露 window.clipboardBridge)
+  bindClipboardBridge();
+  bindClipboardHeartbeat();
+
+  // 启动
+  init();
+});
+</script>
+</body>
+</html>

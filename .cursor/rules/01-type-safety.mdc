@@ -1,0 +1,52 @@
+---
+description: 类型安全铁律(铁律 #1)— 禁止滥用 any/unknown 兜底、内联业务类型
+globs: **/*.{ts,tsx,js,jsx}
+alwaysApply: false
+---
+
+# 类型安全(铁律 #1)
+
+所有新增数据结构必须显式定义类型;`any` / 兜底类型是最后手段,且必须有理由。
+
+## 禁止
+
+- ❌ `any`(TS)/ `Object`(Java)/ `dynamic`(C#)
+- ❌ 在 `.tsx` / `.ts` 视图文件内**内联定义复杂业务类型**
+- ❌ 用 `unknown` 接住后**不做类型守卫**就传给下游
+
+## 允许
+
+- ✅ 第三方库明确返回 `any` → 必须加 `// @ts-expect-error <原因>` 或 `// @ts-ignore <原因>`
+- ✅ 真正未知的外部输入 → 用 `unknown` 接住,**立刻**做类型守卫 / Zod / 手写校验
+- ✅ 简单字典类型 `Record<string, string>`(仅限字典语义)
+
+## 示例
+
+```typescript
+// ✅ 在 types/ 中定义
+export interface CreateOrderResponse {
+  success: boolean
+  orderId?: string
+  message?: string
+}
+
+// ✅ 第三方库兼容问题
+// @ts-expect-error 该库的 ESM 导出与 Bundler resolution 不兼容
+import { SomeWidget } from 'some-lib'
+
+// ❌ 视图文件内联复杂类型
+function Checkout() {
+  const [order, setOrder] = useState<{ id: string; amount: number; channel: 'A' | 'B' }>(...)
+}
+```
+
+```javascript
+// 后端 JSDoc 等价
+/** @typedef {Object} OrderRow
+ *  @property {number} id
+ *  @property {string} order_sn
+ *  @property {'PENDING'|'PAID'|'SHIPPED'|'COMPLETED'|'CANCELED'} status
+ */
+/** @returns {OrderRow|null} */
+function findOrder(sn) { ... }
+```

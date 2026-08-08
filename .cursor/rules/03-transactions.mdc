@@ -1,0 +1,51 @@
+---
+description: 事务与并发安全(铁律 #7)— 多实体写入必须事务化,敏感状态必须乐观锁
+globs: **/*.{js,ts,sql}
+alwaysApply: false
+---
+
+# 事务与并发安全(铁律 #7)
+
+## 7.1 事务强制
+
+跨多表 / 多行写入**必须**包在事务里(以 better-sqlite3 为例):
+
+```javascript
+// ✅ 正确
+const txn = db.transaction(() => {
+  const r1 = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(qty, productId)
+  if (r1.changes === 0) throw new Error('库存不足')
+  db.prepare('INSERT INTO orders ...').run(...)
+})
+txn()
+
+// ❌ 跨多步写入但无事务
+db.prepare('UPDATE products SET stock = stock - ?').run(qty, productId)
+db.prepare('INSERT INTO orders ...').run(...) // 失败 → 库存已扣
+```
+
+典型事务场景:下单、过期订单处理、用户取消、批量重排。
+
+## 7.2 并发防线(乐观锁)
+
+单进程数据库仍需乐观锁:多请求并发、定时任务与用户请求撞同一行、事件循环并行。
+
+**强制乐观锁场景**:订单状态流转、券/积分扣减、防重复。状态检查**写在 WHERE 里**,改完检查 `changes === 0`。
+
+```javascript
+// ✅ 正确
+const r = db.prepare("UPDATE orders SET status='PAID' WHERE id=? AND status='PENDING'").run(id)
+if (r.changes === 0) throw new Error('订单状态已变更')
+
+// ❌ 先查后写,TOCTOU
+const order = db.prepare('SELECT * FROM orders WHERE id=?').get(id)
+if (order.status === 'PENDING') {
+  db.prepare('UPDATE orders SET status="PAID" WHERE id=?').run(id)
+}
+```
+
+## 7.3 谨慎引入并发原语
+
+- 引入 Redis / ZooKeeper / etcd 分布式锁前,评估项目体量是否真的需要
+- 避免滥用 `BEGIN IMMEDIATE` / `BEGIN EXCLUSIVE`,除非明确需要写锁且已文档化
+- 默认框架自带事务能力通常够用

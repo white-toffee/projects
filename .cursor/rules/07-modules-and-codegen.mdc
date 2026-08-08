@@ -1,0 +1,42 @@
+---
+description: 模块与文件规范(铁律 #4 #5)— 文件 ≤500 行、命名规范、不手改生成代码
+globs: **/*.{ts,tsx,js,jsx}
+alwaysApply: false
+---
+
+# 模块与文件规范(铁律 #4 #5)
+
+## 5.1 文件大小
+
+- **新文件 ≤ 500 行**(含空行、注释)
+- **既有 > 500 行文件**允许保留,但新增代码**不应继续堆**,按职责拆子模块
+
+| 文件类型 | 拆分方向 |
+|---|---|
+| `routes/*.js` > 500 行 | 按资源拆:`admin-products.js`、`admin-orders.js`,主文件只挂载 |
+| `*.tsx` 页面 > 500 行 | 抽区块组件 + 逻辑 hook |
+| `lib/*.js` 工具 > 500 行 | 按子领域拆 |
+
+**禁止**"上帝文件":DB + 业务 + UI + 工具塞一个文件。
+
+## 5.2 命名规范
+
+| 类型 | 命名 | 示例 |
+|---|---|---|
+| React 组件 / 类 / TS 接口 | PascalCase | `OrderModal`, `OrderRow`, `CreateOrderRequest` |
+| 变量 / 函数 / 方法 | camelCase | `orderId`, `getOrderStatus`, `handleSubmit` |
+| 常量 | UPPER_SNAKE_CASE | `MAX_RETRY_COUNT`, `JOB_INTERVAL_MS` |
+| 数据库列名 | snake_case(与 schema 一致) | `order_sn`, `paid_at` |
+| 文件名(组件除外) | kebab-case 或 camelCase,按目录约定 | `orderApi.ts`, `expireOrders.js` |
+| 路由文件 | camelCase + `.js` | `admin.js`, `user.js` |
+
+后端:**不要用 PascalCase 命名普通变量**(保留给类/构造函数)。
+
+## 4 代码生成器产物
+
+若引入 `openapi-generator` / `prisma generate` / `graphql-codegen` 等生成器:
+
+- 生成代码可直接 `import` 使用
+- **绝对禁止手动修改生成的代码文件**
+- 需要改时:改上游源(Schema / Prisma schema / GraphQL SDL) → 重新跑生成命令
+- 修改 schema 时主动提示"是否需要重新生成"

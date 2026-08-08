@@ -1,0 +1,34 @@
+---
+description: 禁止硬编码 Mock(铁律 #9)— 生产代码不 return true 假装成功
+globs: **/*.{ts,tsx,js,jsx}
+alwaysApply: false
+---
+
+# 禁止硬编码 Mock(铁律 #9)
+
+## 禁止
+
+```javascript
+// ❌ 在生产代码路径里硬编码成功
+if (process.env.NODE_ENV === 'production') {
+  return res.json({ success: true }) // 跳过真实逻辑
+}
+
+// ❌ 函数直接假装成功
+function confirmPayment() {
+  return { paid: true, paidTime: new Date().toISOString() }
+}
+
+// ❌ 在路由里加 DEBUG 分支返 mock
+if (DEBUG) return mockData()
+```
+
+## Mock 的合法位置
+
+- ✅ 测试文件:`__tests__/`、`tests/`、`*.test.ts`
+- ✅ 临时调试脚本:`scripts/debug-xxx.js`
+- ✅ 环境变量控制:`process.env.SOME_MOCK === 'true'`,且启动时 log 醒目写 `[MOCK MODE]`
+
+## 服务端特别注意
+
+Mock 必须是**完全独立的代码路径**,能被环境变量关掉。**禁止**在路由文件里加 `if (DEBUG) return mockData()` —— 这会让 mock 渗入生产代码路径。

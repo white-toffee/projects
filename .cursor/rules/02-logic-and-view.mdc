@@ -1,0 +1,55 @@
+---
+description: 逻辑分层与视图纯粹性(铁律 #2 #3)— UI 只渲染,业务在独立模块
+globs: **/*.{ts,tsx,jsx,js,vue,svelte}
+alwaysApply: false
+---
+
+# 逻辑分层 + 视图纯粹性(铁律 #2 #3)
+
+## #2 逻辑抽离
+
+跨页面共享逻辑必须抽离:API 封装 → `api/*`;业务模块 → `features/*/` 或后端 `lib/`;状态/上下文 → `contexts/`、`hooks/`。
+
+页面内允许保留:**局部 useState**、**简单派生计算**(如 `price * qty`)、**单文件表单 state(≤5 字段、不会跨组件共享)**。
+
+后端路由文件(`routes/*.js`)允许保留"薄逻辑":参数解析 + 基础校验 + 调用 `lib/` + 简单事务编排。**禁止**在路由里写复杂业务计算、SQL 拼接、跨表 join、字符串模板拼 HTML。
+
+```typescript
+// ✅ 业务抽离到 api/orderApi.ts
+export async function createOrder(req: CreateOrderRequest): Promise<CreateOrderResponse> {
+  const res = await fetch(`${API_BASE}/order/create`, { ... })
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+  return res.json()
+}
+
+// ❌ UI 直接 fetch
+function Checkout() {
+  async function handleSubmit() {
+    const res = await fetch('/api/order/create', { ... })
+  }
+}
+```
+
+## #3 视图组件纯粹性
+
+UI 组件**禁止**:发网络请求、访问 DB、直接读写 localStorage / sessionStorage / cookie、拼接 SQL、`import` 后端 `req`/`res`。
+
+UI 组件**允许**:接收 props、触发回调(`onClick`/`onSuccess`/`onClose`)、通过 Context/Hook 拿到逻辑层注入的服务。
+
+```tsx
+// ✅
+interface ConfirmModalProps {
+  open: boolean
+  orderId: string
+  onConfirmed?: () => void
+  onClose: () => void
+}
+export function ConfirmModal(props: ConfirmModalProps) {
+  const check = useCallback(async () => {
+    const res = await getOrderStatus(props.orderId) // ✅ 走 api/ 封装
+    if (res.success && res.status === 'DONE') props.onConfirmed?.()
+  }, [props.orderId])
+}
+```
+
+> **例外**:纯展示型小组件(`Spinner`、`Empty`)允许不接 props,纯静态渲染。

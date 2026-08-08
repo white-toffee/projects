@@ -1,0 +1,59 @@
+{
+  "name": "inspiration-catcher",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "desktop/main.mjs",
+  "scripts": {
+    "prepare:source": "node scripts/extract-inline-script.mjs",
+    "test": "node --test",
+    "lint": "npm run prepare:source && eslint .cache/app.js desktop scripts tests",
+    "typecheck": "npm run prepare:source && tsc --project jsconfig.json",
+    "build": "vite build",
+    "desktop": "electron .",
+    "verify": "npm test && npm run lint && npm run typecheck && npm run build",
+    "build:desktop": "npm run verify && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@types/node": "^26.2.0",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "^9.32.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.1"
+  },
+  "build": {
+    "appId": "com.soulcatcher.app",
+    "productName": "灵魂捕手",
+    "artifactName": "灵魂捕手0.2.${ext}",
+    "electronDist": "node_modules/electron/dist",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "index.html",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "灵魂捕手"
+    }
+  }
+}

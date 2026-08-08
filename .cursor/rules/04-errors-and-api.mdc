@@ -1,0 +1,83 @@
+---
+description: 异常处理 + 接口双校验(铁律 #6 #8)— 不静默吞错,Promise 不悬挂
+globs: **/*.{ts,tsx,js,jsx}
+alwaysApply: false
+---
+
+# 异常处理 + 接口响应(铁律 #6 #8)
+
+## 6.1 后端(Express)
+
+```javascript
+// ✅ 标准模式:记录 + 标准失败结构 + 不向下继续
+try {
+  const row = db.prepare('SELECT ...').get(...)
+  if (!row) return res.status(404).json({ success: false, message: '记录不存在' })
+  // ...
+} catch (e) {
+  console.error('[create order]', e?.response?.data || e.message)
+  res.status(500).json({ success: false, message: e.message || '操作失败' })
+}
+```
+
+❌ 禁止:
+```javascript
+try { doSomething() } catch (e) { console.error(e) } // 打印后什么都不做
+try { db.prepare(...).run(...) } catch {}              // 裸吞
+```
+
+**唯一允许的"显式吞错"**:`try { ... } catch (e) { /* 注释原因 */ }`,catch 块内**至少留一行说明性注释**。
+
+## 6.2 前端(React / fetch)
+
+```typescript
+// ✅ 三态 + try/catch + finally
+const [loading, setLoading] = useState(false)
+const [error, setError] = useState<string | null>(null)
+const [data, setData] = useState<T | null>(null)
+
+async function load() {
+  setLoading(true)
+  try {
+    const r = await fetch('/api/orders', { credentials: 'include' })
+    const j = await r.json()
+    if (j?.success) setData(j.orders)
+    else setError(j?.message ?? '加载失败')
+  } catch (e) {
+    setError('网络错误,请稍后重试')
+  } finally {
+    setLoading(false)
+  }
+}
+
+// ❌ 悬挂 Promise
+async function load() {
+  const r = await fetch('/api/orders')
+  setData(await r.json())
+}
+```
+
+## 8.1 双层校验(HTTP + 业务)
+
+```typescript
+const r = await fetch('/api/orders', { credentials: 'include' })
+const j = await r.json()
+if (!r.ok || !j?.success) {
+  setError(j?.message || `HTTP ${r.status}`)
+  return
+}
+// 此处 j.data 才可信
+```
+
+## 8.2 错误透传
+
+- 后端:`res.status(4xx/5xx).json({ success: false, message: '...' })`
+- 前端:捕获后**透传 message**给用户;除非含敏感信息(密钥、内部路径),否则不二次包装
+
+## 8.3 异步三态
+
+每个有副作用的异步操作必须维护 `loading` / `error` / `data`(或等价设计):
+
+- ❌ 禁止悬挂 Promise(`async` 内 `await` 后不 catch)
+- ❌ 禁止只有 `loading` 没有 `error`
+- ❌ 禁止完成后不 `finally { setLoading(false) }`

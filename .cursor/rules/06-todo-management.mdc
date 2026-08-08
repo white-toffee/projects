@@ -1,0 +1,47 @@
+---
+description: TODO 统一管理(铁律 #10)— 必须 @TODO-NNN 引用 + TODO.md 登记
+globs: **/*.{ts,tsx,js,jsx}
+alwaysApply: false
+---
+
+# TODO 统一管理(铁律 #10)
+
+## 单一权威源
+
+项目根目录维护 `TODO.md`(首次启用本规则时由 AI 创建)。所有遗留问题登记在此。
+
+```markdown
+# @TODO 索引
+
+| ID | 标题 | 状态 | 创建 | 影响范围 |
+|----|------|------|------|----------|
+| @TODO-001 | 示例:批量重排未包事务 | open | YYYY-MM-DD | server/routes/xxx.js |
+```
+
+## 必须登记的场景(满足任一)
+
+- 预计耗时 > 5 分钟
+- 涉及多个文件
+- 当前会话无法立即完成
+- 跨会话延续
+
+## 禁止裸 TODO
+
+```javascript
+// ❌ 禁止
+function foo() {
+  // TODO: 这里需要优化
+  return doSomething()
+}
+
+// ✅ 正确
+function foo() {
+  // @TODO-007: 性能优化,参见 TODO.md
+  return doSomething()
+}
+```
+
+## 完成时
+
+- 删除代码内 `@TODO-NNN` 注释
+- 在 `TODO.md` 把对应行从 `open` 改为 `done`
