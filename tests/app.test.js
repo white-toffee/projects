@@ -30,3 +30,8 @@ test('required application controls exist', () => {
     assert.match(html, new RegExp(`\\sid="${id}"`));
   }
 });
+
+test('page follows the Electron content area without resizing the window', () => {
+  assert.match(html, /width:\s*100%;\s*height:\s*100%;\s*overflow:\s*hidden/);
+  assert.doesNotMatch(html, /window\.resizeTo|window\.moveTo/);
+});

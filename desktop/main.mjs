@@ -107,8 +107,15 @@ function reportWindowCreationFailure(error) {
   console.error('[desktop window]', error);
 }
 
-// ipcMain 这里没有 handle,但保留 import 占位,后续如需渲染进程主动询问可扩展
-void ipcMain;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  startPrimaryInstance();
+}
+
+function startPrimaryInstance() {
 
 // 渲染进程健康探测:立即返回 ok,让前端维持心跳
 ipcMain.handle('clipboard:status:ping', () => ({ ok: true, ts: Date.now() }));
@@ -127,6 +134,14 @@ ipcMain.handle('clipboard:read', () => {
 
 app.setAppUserModelId(APP_ID);
 Menu.setApplicationMenu(null);
+
+app.on('second-instance', () => {
+  const [mainWindow] = BrowserWindow.getAllWindows();
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 
 app.whenReady()
   .then(async () => {
@@ -147,3 +162,4 @@ app.on('window-all-closed', () => {
   }
   if (process.platform !== 'darwin') app.quit();
 });
+}

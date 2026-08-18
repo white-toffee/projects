@@ -15,10 +15,11 @@ const iconPath = resolve(
 export const APP_ID = 'com.soulcatcher.app';
 
 export const MAIN_WINDOW_OPTIONS = Object.freeze({
-  width: 1100,
-  height: 700,
-  minWidth: 900,
-  minHeight: 600,
+  width: 1200,
+  height: 800,
+  minWidth: 1000,
+  minHeight: 700,
+  useContentSize: true,
   icon: iconPath,
   show: false,
   backgroundColor: '#f5f4ef',

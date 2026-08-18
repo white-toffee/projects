@@ -17,10 +17,24 @@ test('desktop renderer remains isolated from Node.js', () => {
   assert.equal(MAIN_WINDOW_OPTIONS.webPreferences.sandbox, true);
 });
 
+test('initial window fits the desktop and uses its content area', () => {
+  assert.equal(MAIN_WINDOW_OPTIONS.width, 1200);
+  assert.equal(MAIN_WINDOW_OPTIONS.height, 800);
+  assert.equal(MAIN_WINDOW_OPTIONS.useContentSize, true);
+  assert.ok(MAIN_WINDOW_OPTIONS.minWidth < MAIN_WINDOW_OPTIONS.width);
+  assert.ok(MAIN_WINDOW_OPTIONS.minHeight < MAIN_WINDOW_OPTIONS.height);
+});
+
 test('desktop entry loads the existing application page', () => {
   assert.equal(packageJson.main, 'desktop/main.mjs');
   assert.match(mainSource, /\.\.['"], ['"]index\.html/);
   assert.match(mainSource, /loadFile\(applicationPage\)/);
+});
+
+test('desktop app keeps a single stateful window', () => {
+  assert.match(mainSource, /requestSingleInstanceLock\(\)/);
+  assert.match(mainSource, /app\.on\(['"]second-instance['"]/);
+  assert.match(mainSource, /mainWindow\.focus\(\)/);
 });
 
 test('Windows installer configuration uses NSIS', () => {
