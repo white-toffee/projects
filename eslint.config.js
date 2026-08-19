@@ -30,8 +30,7 @@ export default [
     },
     rules: {
       'no-unused-vars': ['error', {
-        caughtErrors: 'none',
-        varsIgnorePattern: '^(clearHandleFromIdb|captureClipboardItem|showFloater)$'
+        caughtErrors: 'none'
       }]
     }
   },

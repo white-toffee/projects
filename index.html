@@ -64,7 +64,9 @@
     padding: 8px 10px; margin-bottom: 6px;
     border: 1px solid #ebe7d8; border-radius: 6px; background: #fff;
     font-size: 13px; line-height: 1.4;
+    cursor: grab;
   }
+  .item:active { cursor: grabbing; }
   .item input[type="checkbox"] { cursor: pointer; }
   .item .item-content { flex: 1; min-width: 0; word-break: break-all; }
   .item .item-content.text { color: #2a2a2a; }
@@ -75,12 +77,17 @@
   .item .item-meta { font-size: 11px; color: #999083; white-space: nowrap; }
   /* 左栏拖拽手柄 + 拖放指示 */
   .item .item-handle {
-    cursor: grab; color: #b4ad95; user-select: none; font-size: 14px;
-    padding: 0 2px; flex: 0 0 auto;
+    color: #b4ad95; user-select: none; font-size: 14px;
+    padding: 0 2px; flex: 0 0 auto; pointer-events: none;
   }
-  .item .item-handle:active { cursor: grabbing; }
   .item.dragging { opacity: 0.4; }
   .item.drag-over { border-top: 2px solid #e89a4a; }
+
+  /* 低饱和卡色(参考截图,4 色循环):bg-0~bg-3 */
+  .item.bg-0 { background: #f6e7e3; border-color: #ecd6cf; }   /* 淡粉 */
+  .item.bg-1 { background: #f6f1e3; border-color: #e8e0c8; }   /* 暖米 */
+  .item.bg-2 { background: #f3ecda; border-color: #e2d8bd; }   /* 淡黄 */
+  .item.bg-3 { background: #eef0e4; border-color: #dde0cf; }   /* 淡草绿 */
 
   /* 底部操作栏(原料操作) */
   .left-actions {
@@ -141,25 +148,6 @@
     cursor: pointer; color: #4a4636;
   }
   .right-actions .log-btn:hover { background: #f0ecdb; }
-
-  /* ========== 浮动圆球 ========== */
-  .floater {
-    position: fixed; width: 56px; height: 56px; border-radius: 50%;
-    background: #2a2a2a; color: #fff; border: none;
-    display: none; cursor: pointer; z-index: 1000;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    font-size: 22px;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .floater.show { display: flex; }
-  .floater .badge {
-    position: absolute; top: -4px; right: -4px;
-    min-width: 20px; height: 20px; border-radius: 10px;
-    background: #e84a4a; color: #fff; font-size: 11px;
-    display: none; align-items: center; justify-content: center;
-    padding: 0 5px; font-weight: 600;
-  }
-  .floater .badge.show { display: flex; }
 
   /* ========== 设置面板 ========== */
   .modal-mask {
@@ -262,12 +250,6 @@
   </div>
 </div>
 
-<!-- 浮动圆球(最小化态) -->
-<button class="floater" id="floater">
-  💡
-  <span class="badge" id="floaterBadge">0</span>
-</button>
-
 <!-- 设置面板 -->
 <div class="modal-mask" id="settingsModal">
   <div class="modal">
@@ -306,7 +288,7 @@
  * 章节: 1.常量与状态  2.工具函数  3.LocalStorage 持久化
  *       4.文件夹句柄持久化(IndexedDB)  5.文件读写
  *       6.粘贴捕获  7.渲染  8.右栏编辑
- *       8.5左栏拖拽排序  9.保存片段  10.日志  11.浮动圆球  12.设置
+ *       8.5左栏拖拽排序  9.保存片段  10.日志  11.设置
  *       12.5剪贴板监听状态  13.初始化  14.事件绑定
  * ============================================================ */
 
@@ -317,9 +299,8 @@ const IDB_STORE = 'handles';                 // IndexedDB 对象仓库名
 let items = [];        // 全部碎片(仅今日)
 let logs = [];         // 日志列表
 let folderHandle = null; // 当前工作区文件夹句柄
-let isMinimized = false; // 主界面是否最小化
-let pendingCount = 0;  // 最小化期间新增的碎片数
 const imageBlobCache = new Map(); // imagePath -> blob URL,缓存避免重复创建
+const clipboardUnsubscribers = [];
 
 /* ===== 2.工具函数 ===== */
 
@@ -444,31 +425,15 @@ async function loadHandleFromIdb() {
       req.onerror = () => reject(req.error);
     });
     if (!handle) return null;
-    // 重新申请读写权限
+    // 启动阶段不能主动申请权限,只恢复仍然有效的句柄。
+    // 权限失效时由用户点击“选择文件夹”重新授权。
     const perm = await handle.queryPermission({ mode: 'readwrite' });
     if (perm === 'granted') return handle;
-    const perm2 = await handle.requestPermission({ mode: 'readwrite' });
-    if (perm2 === 'granted') return handle;
     return null;
   } catch (e) {
     console.error('[loadHandleFromIdb]', e);
     return null;
   }
-}
-
-/** 清除 IndexedDB 中的句柄 */
-async function clearHandleFromIdb() {
-  try {
-    const db = await new Promise((resolve, reject) => {
-      const r = indexedDB.open(IDB_NAME, 1);
-      r.onsuccess = () => resolve(r.result);
-      r.onerror = () => reject(r.error);
-    });
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).delete('folder');
-    await new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
-    db.close();
-  } catch (e) { console.error('[clearHandleFromIdb]', e); }
 }
 
 /* ===== 5.文件读写(图片保存 + Markdown 写入) ===== */
@@ -527,8 +492,8 @@ async function writeMarkdownFile(content) {
       filename = baseName + '(' + counter + ').md';
       counter++;
     } catch (e) {
-      // 不存在,跳出
-      break;
+      if (e instanceof DOMException && e.name === 'NotFoundError') break;
+      throw e;
     }
   }
   const fileHandle = await folderHandle.getFileHandle(filename, { create: true });
@@ -551,36 +516,23 @@ function downloadFallback(content, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/* ===== 6.粘贴捕获 ===== */
+function clearImageBlobCache() {
+  for (const url of imageBlobCache.values()) URL.revokeObjectURL(url);
+  imageBlobCache.clear();
+}
 
-/** 把剪贴板条目(文本或图片)转成 item 并入库 */
-async function captureClipboardItem(clipItem) {
-  // 文本
-  if (clipItem.type === 'text/plain') {
-    const blob = await clipItem.getType('text/plain');
-    const text = await blob.text();
-    if (!text.trim()) return;
-    addItem({ type: 'text', content: text });
-    return;
-  }
-  // 图片
-  if (clipItem.type.startsWith('image/')) {
-    if (!folderHandle) {
-      toast('请先在设置中选择工作区文件夹', 2400);
-      openSettings();
-      return;
-    }
-    const blob = await clipItem.getType(clipItem.type);
-    try {
-      const relativePath = await saveImageBlob(blob);
-      addItem({ type: 'image', relativePath: relativePath });
-    } catch (e) {
-      console.error('[capture image]', e);
-      toast('图片保存失败: ' + e.message, 2400);
-      addLog('图片保存失败: ' + e.message, false);
-    }
+function pruneImageBlobCache() {
+  const activePaths = new Set(
+    items.filter(item => item.type === 'image').map(item => item.relativePath),
+  );
+  for (const [path, url] of imageBlobCache) {
+    if (activePaths.has(path)) continue;
+    URL.revokeObjectURL(url);
+    imageBlobCache.delete(path);
   }
 }
+
+/* ===== 6.粘贴捕获 ===== */
 
 /** 处理 paste 事件 */
 async function handlePaste(e) {
@@ -686,14 +638,10 @@ function addItem(partial) {
     isPicked: false,
     date: todayStr(),
     time: nowTimeStr(),
+    colorIndex: items.length % 4,
   }, partial);
   items.push(item);
   saveItems();
-  // 最小化时累加角标
-  if (isMinimized) {
-    pendingCount++;
-    updateBadge();
-  }
   renderLeftList();
   renderRightBoard();
   addLog('捕获' + (item.type === 'text' ? '文本' : '图片') + '成功', true);
@@ -713,17 +661,18 @@ async function renderLeftList() {
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
     const row = document.createElement('div');
-    row.className = 'item';
+    row.className = 'item type-' + it.type + ' bg-' + (it.colorIndex ?? 0);
     row.dataset.id = it.id;
+    row.draggable = true;
 
-    // 拖拽手柄(整行可拖,手柄只作视觉锚点)
+    // 拖拽手柄(仅作视觉锚点,不响应事件)
     const handle = document.createElement('span');
     handle.className = 'item-handle';
     handle.textContent = '⠿';
-    handle.draggable = true;
-    handle.addEventListener('dragstart', onItemDragStart);
-    handle.addEventListener('dragend', onItemDragEnd);
     row.appendChild(handle);
+    // 整行可拖,所有 drag 事件绑在 row 上
+    row.addEventListener('dragstart', onItemDragStart);
+    row.addEventListener('dragend', onItemDragEnd);
     // 让整行 row 也作为 drop 目标(否则手柄太小不好定位)
     row.addEventListener('dragover', onItemDragOver);
     row.addEventListener('dragleave', onItemDragLeave);
@@ -738,6 +687,7 @@ async function renderLeftList() {
       saveItems();
       renderRightBoard();
     });
+    cb.addEventListener('mousedown', e => e.stopPropagation());
     row.appendChild(cb);
 
     // 内容
@@ -1037,73 +987,7 @@ function escapeHtml(s) {
   })[c]);
 }
 
-/* ===== 11.浮动圆球 ===== */
-
-function showFloater() {
-  isMinimized = true;
-  document.getElementById('mainView').style.display = 'none';
-  const f = document.getElementById('floater');
-  f.classList.add('show');
-  // 位置:右下角
-  f.style.right = '24px';
-  f.style.bottom = '24px';
-  f.style.left = 'auto';
-  f.style.top = 'auto';
-  updateBadge();
-}
-
-function hideFloater() {
-  isMinimized = false;
-  pendingCount = 0;
-  document.getElementById('mainView').style.display = 'flex';
-  document.getElementById('floater').classList.remove('show');
-  updateBadge();
-}
-
-function updateBadge() {
-  const badge = document.getElementById('floaterBadge');
-  if (pendingCount > 0) {
-    badge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
-    badge.classList.add('show');
-  } else {
-    badge.classList.remove('show');
-  }
-}
-
-/** 浮动球拖拽 */
-(function bindFloaterDrag() {
-  const f = document.getElementById('floater');
-  let dragging = false, moved = false, ox = 0, oy = 0;
-  f.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    dragging = true; moved = false;
-    const rect = f.getBoundingClientRect();
-    ox = e.clientX - rect.left;
-    oy = e.clientY - rect.top;
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    moved = true;
-    const x = Math.max(0, Math.min(window.innerWidth - f.offsetWidth, e.clientX - ox));
-    const y = Math.max(0, Math.min(window.innerHeight - f.offsetHeight, e.clientY - oy));
-    f.style.left = x + 'px';
-    f.style.top = y + 'px';
-    f.style.right = 'auto';
-    f.style.bottom = 'auto';
-  });
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    const wasMoved = moved;
-    dragging = false;
-    if (!wasMoved) {
-      // 当作点击
-      hideFloater();
-    }
-  });
-})();
-
-/* ===== 12.设置 ===== */
+/* ===== 11.设置 ===== */
 
 function openSettings() {
   const m = document.getElementById('settingsModal');
@@ -1130,6 +1014,7 @@ async function pickDirectory() {
   }
   try {
     const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    clearImageBlobCache();
     folderHandle = handle;
     await saveHandleToIdb(handle);
     addLog('设置工作区: ' + handle.name, true);
@@ -1156,15 +1041,15 @@ function bindClipboardBridge() {
   const bridge = window.clipboardBridge;
   if (!bridge) return; // 浏览器预览环境或 preload 未加载,静默跳过
 
-  bridge.onText(async (text) => {
+  clipboardUnsubscribers.push(bridge.onText(async (text) => {
     if (!text || !text.trim()) return;
     // 焦点在输入框时仍正常入库,但避免用户在拼贴板里编辑时被覆盖
     // 实际上 clipboard 事件不抢光标,这里不阻断
     addItem({ type: 'text', content: text });
     addLog('主进程捕获文本', true);
-  });
+  }));
 
-  bridge.onImage(async (blob) => {
+  clipboardUnsubscribers.push(bridge.onImage(async (blob) => {
     if (!blob) return;
     if (!folderHandle) {
       toast('请先在设置中选择工作区文件夹', 2400);
@@ -1180,7 +1065,7 @@ function bindClipboardBridge() {
       toast('图片保存失败: ' + err.message, 2400);
       addLog('图片保存失败: ' + err.message, false);
     }
-  });
+  }));
 }
 
 /* ===== 13.初始化 ===== */
@@ -1255,6 +1140,16 @@ function bindClipboardHeartbeat() {
   runHeartbeatOnce();
 }
 
+function stopClipboardRuntime() {
+  heartbeatStopped = true;
+  if (heartbeatTimer) clearTimeout(heartbeatTimer);
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  heartbeatTimer = null;
+  reconnectTimer = null;
+  for (const unsubscribe of clipboardUnsubscribers.splice(0)) unsubscribe();
+  clearImageBlobCache();
+}
+
 async function init() {
   // 顶部日期
   document.getElementById('headerDate').textContent = formatHeaderDate();
@@ -1285,6 +1180,7 @@ async function init() {
               date: todayStr(),
               time: nowTimeStr(),
               isPicked: false,
+              colorIndex: items.length % 4,
             });
             count++;
           }
@@ -1301,6 +1197,7 @@ async function init() {
               date: todayStr(),
               time: nowTimeStr(),
               isPicked: false,
+              colorIndex: items.length % 4,
             });
             count++;
           } catch (e) { console.error(e); }
@@ -1349,6 +1246,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cnt === 0) { toast('没有已选项'); return; }
     if (!confirmDialog('确认删除已选的 ' + cnt + ' 条?')) return;
     items = items.filter(x => !x.isPicked);
+    pruneImageBlobCache();
     saveItems();
     renderLeftList();
     renderRightBoard();
@@ -1361,6 +1259,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cnt === 0) { toast('没有未选项'); return; }
     if (!confirmDialog('确认删除未选的 ' + cnt + ' 条?')) return;
     items = items.filter(x => x.isPicked);
+    pruneImageBlobCache();
     saveItems();
     renderLeftList();
     renderRightBoard();
@@ -1385,6 +1284,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 全局粘贴捕获
   document.addEventListener('paste', handlePaste);
+  window.addEventListener('beforeunload', stopClipboardRuntime, { once: true });
 
   // 主进程剪贴板监听 IPC(preload 暴露 window.clipboardBridge)
   bindClipboardBridge();

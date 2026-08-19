@@ -35,3 +35,14 @@ test('page follows the Electron content area without resizing the window', () =>
   assert.match(html, /width:\s*100%;\s*height:\s*100%;\s*overflow:\s*hidden/);
   assert.doesNotMatch(html, /window\.resizeTo|window\.moveTo/);
 });
+
+test('workspace restore never requests permission without a user gesture', () => {
+  assert.doesNotMatch(html, /loadHandleFromIdb[\s\S]*?requestPermission/);
+  assert.match(html, /queryPermission\(\{ mode: 'readwrite' \}\)/);
+});
+
+test('image object URLs are released during cleanup', () => {
+  assert.match(html, /function clearImageBlobCache\(\)/);
+  assert.match(html, /URL\.revokeObjectURL\(url\)/);
+  assert.match(html, /beforeunload/);
+});
